@@ -1,0 +1,24 @@
+server:
+  port: 8084
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+vector:
+  provider: ${VECTOR_PROVIDER:inmemory}
+
+pinecone:
+  index-url: ${PINECONE_INDEX_URL:http://localhost:5080}
+  api-key: ${PINECONE_API_KEY:}

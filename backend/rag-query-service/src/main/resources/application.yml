@@ -1,0 +1,22 @@
+server:
+  port: 8085
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+vector:
+  base-url: ${VECTOR_BASE_URL:http://localhost:8084}
+llm:
+  base-url: ${LLM_BASE_URL:http://localhost:8086}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

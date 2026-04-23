@@ -1,0 +1,32 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:9999/realms/aicbi}
+
+ingestion:
+  base-url: ${INGESTION_BASE_URL:http://localhost:8081}
+
+rag:
+  base-url: ${RAG_BASE_URL:http://localhost:8085}
+
+auth:
+  enabled: ${AUTH_ENABLED:false}
+  allowed-origins: ${AUTH_ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

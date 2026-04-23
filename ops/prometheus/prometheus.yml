@@ -1,0 +1,38 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: api-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api-gateway:8080"]
+
+  - job_name: repo-ingestion
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["repo-ingestion:8081"]
+
+  - job_name: code-chunking
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["code-chunking:8082"]
+
+  - job_name: embedding
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["embedding:8083"]
+
+  - job_name: vector-store
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["vector-store:8084"]
+
+  - job_name: rag-query
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["rag-query:8085"]
+
+  - job_name: llm-response
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["llm-response:8086"]

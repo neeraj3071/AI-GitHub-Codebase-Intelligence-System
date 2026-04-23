@@ -1,0 +1,240 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aicbi}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aicbi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: api-gateway-service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+      - repo-ingestion
+      - rag-query
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INGESTION_BASE_URL: http://repo-ingestion:8081
+      RAG_BASE_URL: http://rag-query:8085
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_ISSUER_URI: ${JWT_ISSUER_URI:-http://localhost:9999/realms/aicbi}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-http://localhost:3000}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  repo-ingestion:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: repo-ingestion-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/aicbi
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  code-chunking:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: code-chunking-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  embedding:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: embedding-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      VECTOR_BASE_URL: http://vector-store:8084
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  vector-store:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: vector-store-service
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      VECTOR_PROVIDER: ${VECTOR_PROVIDER:-inmemory}
+      PINECONE_INDEX_URL: ${PINECONE_INDEX_URL:-http://localhost:5080}
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8084/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api-gateway
+      - repo-ingestion
+      - code-chunking
+      - embedding
+      - vector-store
+      - rag-query
+      - llm-response
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  rag-query:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: rag-query-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    depends_on:
+      - kafka
+      - vector-store
+      - llm-response
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      VECTOR_BASE_URL: http://vector-store:8084
+      LLM_BASE_URL: http://llm-response:8086
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8085/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  llm-response:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.service
+      args:
+        MODULE: llm-response-service
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8086/actuator/health | grep UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  grafana_data:
