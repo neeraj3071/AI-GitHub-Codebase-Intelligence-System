@@ -26,7 +26,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aicbi}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
